@@ -16,26 +16,3 @@ class FeatureExtractor(nn.Module):
             x = layer(x)
         return x
 
-
-class DQN(nn.Module):
-    def __init__(
-            self,
-            input_dim,
-            hidden_dims,
-            rep_dim,
-            use_bias=True
-    ):
-        super(DQN, self).__init__()
-        self.feature_extractor = FeatureExtractor(input_dim, hidden_dims, rep_dim)
-        self.weights = nn.Linear(rep_dim, 1, bias=use_bias)
-
-    def forward(self, x):
-        features = self.feature_extractor(x)
-        output = self.weights(features)
-        return output.squeeze()
-
-    def get_weights(self):
-        return self.weights.weight.data, (
-            self.weights.bias.data if self.weights.bias
-            is not None else None
-        )
