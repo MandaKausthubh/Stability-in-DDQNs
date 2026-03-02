@@ -4,7 +4,7 @@ import torch
 from environments.DiscreteMDPs import DiscreteMDP
 from utils.ReplayBuffer import ReplayBuffer
 from models.model import FeatureExtractor
-from .Experiments import DQN_GeneralFA
+from Experiments import DQN_GeneralFA
 
 def create_random_mdp(S, A, seed=0):
     rng = np.random.default_rng(seed)

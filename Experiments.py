@@ -2,6 +2,7 @@ import os
 import datetime
 import torch
 import numpy as np
+from tqdm import tqdm
 import copy
 
 from .models.model import FeatureExtractor
@@ -76,7 +77,7 @@ class DQN_GeneralFA:
         S, A = self.num_states, self.num_actions
         theta_temp = torch.rand(self.representation_dim, requires_grad=True)
 
-        for _ in range(epochs):
+        for _ in tqdm(range(epochs)):
             one_hot_states = torch.eye(S)
             features = self.model(one_hot_states)  # Shape: (S, representation_dim * A)
             features = features.view(S, A, self.representation_dim)  # Reshape to (S, A, representation_dim)
@@ -322,7 +323,7 @@ class DQN_GeneralFA:
         Q_star = self.env.compute_optimal_Q(self.gamma)
         V_star = np.max(Q_star, axis=1)
 
-        for n in range(n_iterations):
+        for n in tqdm(range(n_iterations)):
 
             # Perform one update step
             self._optimizer_step(
