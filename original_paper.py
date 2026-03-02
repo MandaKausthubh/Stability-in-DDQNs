@@ -1,3 +1,5 @@
+import os
+import datetime
 import torch
 import numpy as np
 import copy
@@ -7,6 +9,7 @@ from .utils.ReplayBuffer import ReplayBuffer
 from .utils.Sampling import get_abar, get_stationary_dist
 from .environments.DiscreteMDPs import DiscreteMDP
 
+from torch.utils.tensorboard import SummaryWriter
 
 
 class DQN_GeneralFA:
@@ -24,7 +27,9 @@ class DQN_GeneralFA:
         target_update_freq=100,
         delta=0.1,
         seed=10,
-        pretrain_epochs=1000
+        pretrain_epochs=1000,
+        log_dir="runs/",
+        run_name=None
     ):
         self.num_states = num_states
         self.num_actions = num_actions
@@ -51,11 +56,16 @@ class DQN_GeneralFA:
         self.rng = np.random.default_rng(seed)
         self.mu = np.ones(num_states) / num_states  # uniform distribution over states
         self.l = self.replay_buffer.max_size
-        self.theta = None
+        self.theta : np.ndarray
         self.initialise_theta()
         self.pretrain(pretrain_epochs)
         self.Phi : np.ndarray
         self.compute_phi_matrix()
+        if run_name is None:
+            run_name = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+        self.log_path = os.path.join(log_dir, run_name)
+        self.writer = SummaryWriter(self.log_path)
 
 
     def pretrain(self, epochs=1000):
@@ -132,13 +142,12 @@ class DQN_GeneralFA:
         return 0.1 / np.sqrt(1 + iter_idx)
 
 
-    def generate_trajectory_sampes(
+    def _optimizer_step(
         self,
         iter_idx: int,
         sample_from_stationary: bool = False,
     ):
         s, a, r, next_s, next_a = self.sample_trajectories(sample_from_stationary)
-
         s = np.asarray(s)
         a = np.asarray(a)
         r = np.asarray(r)
@@ -232,12 +241,131 @@ class DQN_GeneralFA:
         )
 
 
+    def compute_Q(self, theta=None):
+        if theta is None:
+            theta = self.theta
+
+        Q = self.Phi.reshape(
+            self.num_states,
+            self.num_actions,
+            self.representation_dim
+        ) @ theta
+        return Q  # shape (S, A)
 
 
+    def compute_greedy_policy(self, theta=None):
+        Q = self.compute_Q(theta)
+        return np.argmax(Q, axis=1)
 
 
+    def evaluate_policy(self, policy, gamma=None):
+        if gamma is None:
+            gamma = self.gamma
 
+        S = self.num_states
 
+        # Build P^pi and r^pi
+        P_pi = np.zeros((S, S))
+        r_pi = np.zeros(S)
 
+        for s in range(S):
+            a = policy[s]
+            P_pi[s] = self.env.P[s, a]
+            r_pi[s] = np.sum(
+                self.env.P[s, a] * self.env.r[s, a]
+            )
 
+        I = np.eye(S)
+        V = np.linalg.solve(I - gamma * P_pi, r_pi)
+
+        return V
+
+    def compute_value_of_policy(self, pi, gamma=0.99):
+        """
+        Compute V^pi exactly by solving Bellman linear system.
+
+        Args:
+            pi: numpy array of shape (S,), deterministic policy
+            gamma: discount factor
+
+        Returns:
+            V_pi: numpy array of shape (S,)
+        """
+
+        S = self.num_states
+
+        P_pi = np.zeros((S, S))
+        r_pi = np.zeros(S)
+
+        for s in range(S):
+            a = pi[s]
+
+            # Transition matrix under policy
+            P_pi[s] = self.env.P[s, a, :]
+
+            # Expected reward under policy
+            r_pi[s] = np.sum(
+                self.env.P[s, a] * self.env.r[s, a]
+            )
+
+        # Solve linear system
+        V_pi = np.linalg.solve(
+            np.eye(S) - gamma * P_pi,
+            r_pi
+        )
+
+        return V_pi
+
+    def learn(self, n_iterations=5000, log_every=250):
+
+        # Compute optimal Q* once
+        Q_star = self.env.compute_optimal_Q(self.gamma)
+        V_star = np.max(Q_star, axis=1)
+
+        for n in range(n_iterations):
+
+            # Perform one update step
+            self._optimizer_step(
+                iter_idx=n,
+                sample_from_stationary=True
+            )
+
+            if n % log_every == 0:
+
+                Q = self.compute_Q()
+                pi = np.argmax(Q, axis=1)
+
+                theta_norm = np.linalg.norm(self.theta)
+
+                # ---- SCALAR LOGS ----
+                self.writer.add_scalar("theta/norm", theta_norm, n)
+
+                V_pi = self.compute_value_of_policy(pi, self.gamma)
+                gap = np.max(np.abs(V_star - V_pi))
+                self.writer.add_scalar("value_gap/inf_norm", gap, n)
+
+                # ---- HISTOGRAMS ----
+                self.writer.add_histogram("theta/components", self.theta, n)
+                self.writer.add_scalar("theta/x", self.theta[0], n)
+                self.writer.add_scalar("theta/y", self.theta[1], n)
+
+                # ---- Q-values per state-action ----
+                for s in range(self.num_states):
+                    for a in range(self.num_actions):
+                        self.writer.add_scalar(
+                            f"Q/s{s}_a{a}",
+                            Q[s, a],
+                            n
+                        )
+
+                # ---- Policy tracking ----
+                for s in range(self.num_states):
+                    self.writer.add_scalar(
+                        f"policy/state_{s}",
+                        pi[s],
+                        n
+                    )
+
+        self.writer.flush()
+        self.writer.close()
 
