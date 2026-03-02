@@ -24,6 +24,7 @@ class DQN_GeneralFA:
         target_update_freq=100,
         delta=0.1,
         seed=10,
+        pretrain_epochs=1000
     ):
         self.num_states = num_states
         self.num_actions = num_actions
@@ -52,14 +53,33 @@ class DQN_GeneralFA:
         self.l = self.replay_buffer.max_size
         self.theta = None
         self.initialise_theta()
-        self.pretrain()
+        self.pretrain(pretrain_epochs)
         self.Phi : np.ndarray
         self.compute_phi_matrix()
 
 
-    def pretrain(self):
-        # TODO: Implement a pretraining phase for the feature extractor, if necessary.
-        pass
+    def pretrain(self, epochs=1000):
+        Q_star = self.env.compute_optimal_Q()
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+        loss_fn = torch.nn.MSELoss()
+
+        S, A = self.num_states, self.num_actions
+        theta_temp = torch.rand(self.representation_dim, requires_grad=True)
+
+        for _ in range(epochs):
+            one_hot_states = torch.eye(S)
+            features = self.model(one_hot_states)  # Shape: (S, representation_dim * A)
+            features = features.view(S, A, self.representation_dim)  # Reshape to (S, A, representation_dim)
+            Q_pred = torch.einsum('sak,k->sa', features, theta_temp)  # Shape: (S, A)
+            loss = loss_fn(Q_pred, torch.tensor(Q_star, dtype=torch.float32))
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+        for p in self.model.parameters():
+            p.requires_grad = False
+
 
     def reset_theta(self):
         self.initialise_theta()

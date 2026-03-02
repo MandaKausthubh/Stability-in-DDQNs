@@ -12,7 +12,7 @@ class DiscreteMDP(gym.Env):
         n_states, # num states S
         n_actions, # num actions A
         P, # prob transition matrix [S, A, S], numpy.ndarray
-        r, # reward vector [S, A], numpy.ndarray
+        r, # reward vector [S, A, S], numpy.ndarray
         rho=None
     ): # initial state distribution, numpy.ndarray
         super().__init__()
@@ -36,7 +36,7 @@ class DiscreteMDP(gym.Env):
             p=self.P[self.state, action]
         )
 
-        reward = self.r[self.state, action]
+        reward = self.r[self.state, action, observation]
         terminated = False
         truncated = False
         info = {}
@@ -53,10 +53,31 @@ class DiscreteMDP(gym.Env):
         )
         return self.state, {}
 
-
     def render(self, mode='human'):
         pass
 
-
     def close (self):
         pass
+
+
+    def compute_optimal_Q(self, gamma=0.99, tol=1e-10, max_iter=10000):
+
+        S, A = self.n_states, self.n_actions
+        Q = np.zeros((S, A))
+
+        for _ in range(max_iter):
+
+            max_Q_next = np.max(Q, axis=1)  # (S,)
+
+            # Broadcast over s,a,s'
+            Q_new = np.sum(
+                self.P * (self.r + gamma * max_Q_next[None, None, :]),
+                axis=2
+            )
+
+            if np.max(np.abs(Q_new - Q)) < tol:
+                break
+
+            Q = Q_new
+
+        return Q
