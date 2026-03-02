@@ -35,4 +35,7 @@ class DQN(nn.Module):
         return output.squeeze()
 
     def get_weights(self):
-        return self.weights.weight.data, (self.weights.bias.data if self.weights.bias is not None else None)
+        return self.weights.weight.data, (
+            self.weights.bias.data if self.weights.bias
+            is not None else None
+        )
