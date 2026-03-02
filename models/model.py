@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-
 class DQN(nn.Module):
     def __init__(
         self,
@@ -31,19 +29,5 @@ class DQN(nn.Module):
         for layer in self.layers:
             if isinstance(layer, nn.Linear):
                 layer.reset_parameters()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
