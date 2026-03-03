@@ -70,7 +70,7 @@ def run_single_experiment(seed, Phi=None, env=None):
     init_gap = np.max(np.abs(V_star - V_init))
 
     # ---- Train ----
-    agent.learn(n_iterations=n_iterations, log_every=100000)
+    agent.learn(n_iterations=n_iterations, verbose=True)
 
     # ---- Final policy gap ----
     Q_final = agent.compute_Q()
