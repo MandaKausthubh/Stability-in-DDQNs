@@ -66,14 +66,9 @@ def main():
         gamma=gamma,
         delta=0.1,
         log_dir="runs",
-        run_name="linear_dqn_test"
+        run_name="linear_dqn_test",
+        pretrain_epochs=10000,
     )
-
-    # ----------------------------
-    # Pretrain + Freeze Φ
-    # ----------------------------
-    agent.pretrain()
-    agent.compute_phi_matrix()
 
     # ----------------------------
     # Compute optimal reference
@@ -89,7 +84,7 @@ def main():
     # ----------------------------
     agent.learn(
         n_iterations=n_iterations,
-        log_every=200,
+        log_every=100,
     )
 
     # ----------------------------

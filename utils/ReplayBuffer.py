@@ -21,11 +21,11 @@ class ReplayBuffer:
         np.random.seed(self.seed)
 
     def push(self, s, a, r, next_s, theta):
-        self.s_buf[self.ptr] = s
-        self.a_buf[self.ptr] = a
-        self.r_buf[self.ptr] = r
-        self.next_s_buf[self.ptr] = next_s
-        self.theta_buf[self.ptr] = theta
+        self.s_buf[self.ptr] = np.asarray(s)
+        self.a_buf[self.ptr] = np.asarray(a)
+        self.r_buf[self.ptr] = np.asarray(r)
+        self.next_s_buf[self.ptr] = np.asarray(next_s)
+        self.theta_buf[self.ptr] = np.asarray(theta)
         self.ptr = (self.ptr + 1) % self.max_size
         self.size = min(self.size + 1, self.max_size)
 

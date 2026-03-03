@@ -5,12 +5,13 @@ import numpy as np
 from tqdm import tqdm
 import copy
 
-from .models.model import FeatureExtractor
-from .utils.ReplayBuffer import ReplayBuffer
-from .utils.Sampling import get_abar, get_stationary_dist
-from .environments.DiscreteMDPs import DiscreteMDP
+from models.model import FeatureExtractor
+from utils.ReplayBuffer import ReplayBuffer
+from utils.Sampling import get_abar, get_stationary_dist
+from environments.DiscreteMDPs import DiscreteMDP
 
 from torch.utils.tensorboard import SummaryWriter
+import matplotlib.pyplot as plt
 
 
 class DQN_GeneralFA:
@@ -28,7 +29,6 @@ class DQN_GeneralFA:
         target_update_freq=100,
         delta=0.1,
         seed=10,
-        pretrain_epochs=1000,
         log_dir="runs/",
         run_name=None
     ):
@@ -36,9 +36,6 @@ class DQN_GeneralFA:
         self.num_actions = num_actions
         self.model = model
         self.representation_dim = representation_dim
-
-        assert self.representation_dim == model.layers[-1].out_features, \
-            "Representation dimension must match the output dimension of the model's last layer."
 
         assert self.representation_dim * self.num_actions == model.layers[-1].out_features, \
             "The output dimension of the model must be equal to representation_dim * num_actions."
@@ -52,6 +49,11 @@ class DQN_GeneralFA:
         self.delta = delta
         self.replay_buffer = replay_buffer
 
+        if run_name is None:
+            run_name = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.log_path = os.path.join(log_dir, run_name)
+        self.writer = SummaryWriter(self.log_path)
+
         self.batch_size = batch_size
         self.target_update_freq = target_update_freq
         self.rng = np.random.default_rng(seed)
@@ -59,14 +61,9 @@ class DQN_GeneralFA:
         self.l = self.replay_buffer.max_size
         self.theta : np.ndarray
         self.initialise_theta()
-        self.pretrain(pretrain_epochs)
         self.Phi : np.ndarray
         self.compute_phi_matrix()
-        if run_name is None:
-            run_name = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
-        self.log_path = os.path.join(log_dir, run_name)
-        self.writer = SummaryWriter(self.log_path)
 
 
     def pretrain(self, epochs=1000):
@@ -77,12 +74,17 @@ class DQN_GeneralFA:
         S, A = self.num_states, self.num_actions
         theta_temp = torch.rand(self.representation_dim, requires_grad=True)
 
-        for _ in tqdm(range(epochs)):
+        progress_bar = tqdm(range(epochs), desc="Pretraining", ncols=100)
+        for _ in progress_bar:
             one_hot_states = torch.eye(S)
             features = self.model(one_hot_states)  # Shape: (S, representation_dim * A)
             features = features.view(S, A, self.representation_dim)  # Reshape to (S, A, representation_dim)
             Q_pred = torch.einsum('sak,k->sa', features, theta_temp)  # Shape: (S, A)
             loss = loss_fn(Q_pred, torch.tensor(Q_star, dtype=torch.float32))
+
+            progress_bar.set_postfix({"Loss": loss.item(), "Iter": _})
+
+            self.writer.add_scalar("pretrain/loss", loss.item(), _)
 
             optimizer.zero_grad()
             loss.backward()
@@ -169,7 +171,8 @@ class DQN_GeneralFA:
             self.theta_target += self.tau(iter_idx) * (
                 self.theta - self.theta_target
             )
-        self.replay_buffer.push(s, a, r, next_s, self.theta.copy())
+        return self.theta, self.theta_target
+        # self.replay_buffer.push(s, a, r, next_s, self.theta.copy())
 
     def build_eps_policy(self, abar):
         """
@@ -317,59 +320,91 @@ class DQN_GeneralFA:
 
         return V_pi
 
+
     def learn(self, n_iterations=5000, log_every=250):
 
         # Compute optimal Q* once
         Q_star = self.env.compute_optimal_Q(self.gamma)
         V_star = np.max(Q_star, axis=1)
 
-        for n in tqdm(range(n_iterations)):
+        thetas, theta_norms, gaps = [], [], []
+
+        with open("runs/training_log.txt", "w") as f:
+            f.write(f"Q matrix:\n{self.Phi}\n")
+
+        for n in tqdm(range(n_iterations), desc="Learning", ncols=100):
 
             # Perform one update step
-            self._optimizer_step(
+            theta, _ = self._optimizer_step(
                 iter_idx=n,
                 sample_from_stationary=True
             )
 
+            Q = self.compute_Q()
+            pi = np.argmax(Q, axis=1)
+
+            theta_norm = np.linalg.norm(self.theta)
+            V_pi = self.compute_value_of_policy(pi, self.gamma)
+            gap = np.max(np.abs(V_star - V_pi))
+
+            thetas.append(theta.copy())
+            theta_norms.append(theta_norm)
+            gaps.append(gap)
+
             if n % log_every == 0:
-
-                Q = self.compute_Q()
-                pi = np.argmax(Q, axis=1)
-
-                theta_norm = np.linalg.norm(self.theta)
-
-                # ---- SCALAR LOGS ----
-                self.writer.add_scalar("theta/norm", theta_norm, n)
-
-                V_pi = self.compute_value_of_policy(pi, self.gamma)
-                gap = np.max(np.abs(V_star - V_pi))
-                self.writer.add_scalar("value_gap/inf_norm", gap, n)
-
-                # ---- HISTOGRAMS ----
-                self.writer.add_histogram("theta/components", self.theta, n)
-                self.writer.add_scalar("theta/x", self.theta[0], n)
-                self.writer.add_scalar("theta/y", self.theta[1], n)
-
-                # ---- Q-values per state-action ----
-                for s in range(self.num_states):
-                    for a in range(self.num_actions):
-                        self.writer.add_scalar(
-                            f"Q/s{s}_a{a}",
-                            Q[s, a],
-                            n
-                        )
-
-                # ---- Policy tracking ----
-                for s in range(self.num_states):
-                    self.writer.add_scalar(
-                        f"policy/state_{s}",
-                        pi[s],
-                        n
-                    )
+                # self.writer.add_scalar("value_gap/inf_norm", gap, n)
+                #
+                # # ---- HISTOGRAMS ----
+                # self.writer.add_histogram("theta/components", self.theta, n)
+                # self.writer.add_scalar("theta/x", self.theta[0], n)
+                # self.writer.add_scalar("theta/y", self.theta[1], n)
+                #
+                # # ---- Q-values per state-action ----
+                # for s in range(self.num_states):
+                #     for a in range(self.num_actions):
+                #         self.writer.add_scalar(
+                #             f"Q/s{s}_a{a}",
+                #             Q[s, a],
+                #             n
+                #         )
+                #
+                # # ---- Policy tracking ----
+                # for s in range(self.num_states):
+                #     self.writer.add_scalar(
+                #         f"policy/state_{s}",
+                #         pi[s],
+                #         n
+                #     )
+                with open("runs/training_log.txt", "a") as f:
+                    f.write(f"{n}.\t\tTheta: {self.theta}\t\t Theta target: {self.theta_target}\t\tgap: {gap}\n")
 
         self.writer.flush()
         self.writer.close()
 
+        plt.figure(figsize=(12, 5))
+        plt.plot(theta_norms)
+        plt.xlabel("Iteration")
+        plt.ylabel("Theta Norm")
+        plt.title("Norm of Theta over Iterations")
+        plt.show()
+        image_path = os.path.join(self.log_path, "theta_norm.png")
+        plt.savefig(image_path)
 
+        plt.figure(figsize=(12, 5))
+        plt.plot(gaps)
+        plt.xlabel("Iteration")
+        plt.ylabel("Value Gap")
+        plt.title("Value Gap over Iterations")
+        plt.show()
+        image_path = os.path.join(self.log_path, "gaps.png")
+        plt.savefig(image_path)
 
+        theta_0 = [t[0] for t in thetas]
+        theta_1 = [t[1] for t in thetas]
 
+        plt.figure()
+        plt.plot(theta_0, theta_1)
+        plt.xlabel("theta[0]")
+        plt.ylabel("theta[1]")
+        plt.title("Theta Trajectory During Learning")
+        plt.show()
