@@ -148,7 +148,7 @@ class DQN_GeneralFA:
     def _optimizer_step(
         self,
         iter_idx: int,
-        sample_from_stationary: bool = False,
+        sample_from_stationary: bool = True,
     ):
         s, a, r, next_s, next_a = self.sample_trajectories(sample_from_stationary)
         s = np.asarray(s)
@@ -321,7 +321,7 @@ class DQN_GeneralFA:
         return V_pi
 
 
-    def learn(self, n_iterations=5000, log_every=250):
+    def learn(self, n_iterations=5000, sample_from_stationary=True, log_every=250, verbose=False):
 
         # Compute optimal Q* once
         Q_star = self.env.compute_optimal_Q(self.gamma)
@@ -337,7 +337,7 @@ class DQN_GeneralFA:
             # Perform one update step
             theta, _ = self._optimizer_step(
                 iter_idx=n,
-                sample_from_stationary=True
+                sample_from_stationary=sample_from_stationary
             )
 
             Q = self.compute_Q()
@@ -381,30 +381,31 @@ class DQN_GeneralFA:
         self.writer.flush()
         self.writer.close()
 
-        plt.figure(figsize=(12, 5))
-        plt.plot(theta_norms)
-        plt.xlabel("Iteration")
-        plt.ylabel("Theta Norm")
-        plt.title("Norm of Theta over Iterations")
-        plt.show()
-        image_path = os.path.join(self.log_path, "theta_norm.png")
-        plt.savefig(image_path)
+        if verbose:
+            plt.figure(figsize=(12, 5))
+            plt.plot(theta_norms)
+            plt.xlabel("Iteration")
+            plt.ylabel("Theta Norm")
+            plt.title("Norm of Theta over Iterations")
+            plt.show()
+            image_path = os.path.join(self.log_path, "theta_norm.png")
+            plt.savefig(image_path)
 
-        plt.figure(figsize=(12, 5))
-        plt.plot(gaps)
-        plt.xlabel("Iteration")
-        plt.ylabel("Value Gap")
-        plt.title("Value Gap over Iterations")
-        plt.show()
-        image_path = os.path.join(self.log_path, "gaps.png")
-        plt.savefig(image_path)
+            plt.figure(figsize=(12, 5))
+            plt.plot(gaps)
+            plt.xlabel("Iteration")
+            plt.ylabel("Value Gap")
+            plt.title("Value Gap over Iterations")
+            plt.show()
+            image_path = os.path.join(self.log_path, "gaps.png")
+            plt.savefig(image_path)
 
-        theta_0 = [t[0] for t in thetas]
-        theta_1 = [t[1] for t in thetas]
+            theta_0 = [t[0] for t in thetas]
+            theta_1 = [t[1] for t in thetas]
 
-        plt.figure()
-        plt.plot(theta_0, theta_1)
-        plt.xlabel("theta[0]")
-        plt.ylabel("theta[1]")
-        plt.title("Theta Trajectory During Learning")
-        plt.show()
+            plt.figure()
+            plt.plot(theta_0, theta_1)
+            plt.xlabel("theta[0]")
+            plt.ylabel("theta[1]")
+            plt.title("Theta Trajectory During Learning")
+            plt.show()
