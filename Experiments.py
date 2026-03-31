@@ -30,12 +30,14 @@ class DQN_GeneralFA:
         delta=0.1,
         seed=10,
         log_dir="runs/",
+        random_sample=False,
         run_name=None
     ):
         self.num_states = num_states
         self.num_actions = num_actions
         self.model = model
         self.representation_dim = representation_dim
+        self.random_sample = random_sample
 
         assert self.representation_dim * self.num_actions == model.layers[-1].out_features, \
             "The output dimension of the model must be equal to representation_dim * num_actions."
@@ -119,6 +121,9 @@ class DQN_GeneralFA:
 
 
     def select_action(self, states, theta=None):
+        if self.random_sample:
+            return self.rng.integers(self.num_actions, size=states.shape[0])
+
         if theta is None:
             theta = self.theta
 
@@ -138,7 +143,10 @@ class DQN_GeneralFA:
 
     def alpha(self, iter_idx):
         # Step size schedule, can be tuned as needed
-        return 0.1 / (1 + iter_idx)
+        # Uses standard log(n) / 10n as defined in DoesDQNLearn
+        # Avoid log(0) and div by 0 by shifting iter_idx by 2
+        n = iter_idx + 2 
+        return np.log(n) / (10.0 * n)
 
     def tau(self, iter_idx):
         # Target update schedule, can be tuned as needed

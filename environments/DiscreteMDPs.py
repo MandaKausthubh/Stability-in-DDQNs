@@ -25,7 +25,7 @@ class DiscreteMDP(gym.Env):
         self.P = P
         self.r = r
         self.rho = rho
-        if not self.rho:
+        if self.rho is None:
             self.rho = np.ones(n_states)/n_states
         self.state = 0
 
